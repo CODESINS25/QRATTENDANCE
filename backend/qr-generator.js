@@ -35,7 +35,7 @@ async function generateQRCode(ipAddress) {
                          .update(sessionId + timestamp + secretKey)
                          .digest('hex');
 
-        const qrData = `http://localhost:5000/verify-attendance?data=${encodeURIComponent(JSON.stringify({
+        const qrData = `https://qrattendance-w4jl.onrender.com/verify-attendance?data=${encodeURIComponent(JSON.stringify({
             sessionId,
             timestamp,
             hash
