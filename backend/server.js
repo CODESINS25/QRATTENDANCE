@@ -565,20 +565,17 @@ function validateAttendance(req, res, next) {
 }
 
 app.post("/mark-attendance", validateAttendance, async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    const { universityRollNo, deviceFingerprint, location } = req.body;
-    const today = new Date().toISOString().split('T')[0];
+    const { universityRollNo, deviceFingerprint, location, name, section, classRollNo } = req.body;
+    const today = new Date().toISOString().split("T")[0];
 
+    // 1) Check if already marked today
     const [existing, existingDevice] = await Promise.all([
-      Attendance.findOne({ universityRollNo, date: today }).session(session),
-      Attendance.findOne({ deviceFingerprint, date: today }).session(session)
+      Attendance.findOne({ universityRollNo, date: today }),
+      Attendance.findOne({ deviceFingerprint, date: today })
     ]);
 
     if (existing) {
-      await session.abortTransaction();
-      session.endSession();
       return res.status(400).json({
         status: "error",
         message: "You've already marked attendance today"
@@ -586,63 +583,63 @@ app.post("/mark-attendance", validateAttendance, async (req, res) => {
     }
 
     if (existingDevice) {
-      await session.abortTransaction();
-      session.endSession();
       return res.status(400).json({
         status: "error",
         message: "This device has already been used to mark attendance today"
       });
     }
 
+    // 2) Distance check
     const distance = getDistanceFromLatLngInMeters(
-      location.lat, location.lng,
-      CLASS_LAT, CLASS_LNG
+      location.lat,
+      location.lng,
+      CLASS_LAT,
+      CLASS_LNG
     );
 
     if (distance > MAX_DISTANCE_METERS) {
-      await session.abortTransaction();
-      session.endSession();
       return res.status(400).json({
         status: "error",
-        message: `You must be within ${MAX_DISTANCE_METERS} meters of the classroom to mark attendance. Current distance: ${distance.toFixed(0)}m`
+        message: `You must be within ${MAX_DISTANCE_METERS} meters of the classroom to mark attendance. Current distance: ${distance.toFixed(
+          0
+        )}m`
       });
     }
 
+    // 3) Upsert student (create if not exists)
     const student = await User.findOneAndUpdate(
       { universityRollNo },
       {
         $setOnInsert: {
-          name: req.body.name,
-          section: req.body.section,
-          classRollNo: req.body.classRollNo
+          name,
+          section,
+          classRollNo
         }
       },
-      { new: true, upsert: true, session }
+      { new: true, upsert: true }
     );
 
-    const attendance = await Attendance.create([{
+    // 4) Create attendance record
+    const attendance = await Attendance.create({
       ...req.body,
       date: today,
-      time: new Date().toLocaleTimeString('en-IN', { hour12: false }),
+      time: new Date().toLocaleTimeString("en-IN", { hour12: false }),
       status: "present",
       studentId: student._id,
       distanceFromClass: distance
-    }], { session });
+    });
 
-    await session.commitTransaction();
-    session.endSession();
-    res.json({
+    return res.json({
       status: "success",
       message: "Attendance marked successfully",
-      data: attendance[0]
+      data: attendance
     });
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
     console.error("Attendance error:", error);
-    res.status(500).json({ status: "error", message: error.message });
+    return res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 
 app.get('/api/students/profile', async (req, res) => {
     try {
